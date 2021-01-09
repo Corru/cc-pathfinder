@@ -52,7 +52,7 @@ auto navigate_using_heightmap(numpy::ndarray const& hmap, python::object const& 
     -> python::list
 {
     //
-    // Since map is heightmap it should be 2d array
+    // Since the map is a heightmap it should be a 2d array
     //
     check_dimensions<2>(hmap);
 
