@@ -1,3 +1,4 @@
+/*
 #include <map>
 #include <string>
 
@@ -72,3 +73,4 @@ BOOST_PYTHON_MODULE(pathfinder)
     python::def("navigate_using_heightmap", navigate_using_heightmap, (python::arg("map"), "start", "finish"),
                 "returns optimal path from start to finish based on heightmap");
 }
+*/
