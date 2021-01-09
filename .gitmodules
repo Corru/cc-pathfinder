@@ -1,0 +1,3 @@
+[submodule "lib/libanvil"]
+	path = lib/libanvil
+	url = https://github.com/Corru/libanvil
