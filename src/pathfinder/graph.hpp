@@ -235,7 +235,7 @@ public:
 
 class TurtlePathGraph 
 {
-    RegionView view;
+    RegionView view_;
     std::unordered_map<PathNode, std::vector<PathNode>, PathNodeHash> adjacency_matrix;
 
     int adj_node_off[6];
@@ -243,7 +243,7 @@ class TurtlePathGraph
     void push_adj_node_north(std::vector<PathNode>& row, const PathNode& node)
     {
         auto const coord = to_relative_coord(node);
-        if (coord.z > 1u && view.is_air_block(coord.dec_z())) {
+        if (coord.z > 1u && view_.is_air_block(coord.dec_z())) {
             row.emplace_back(node, adj_node_off[Side::NORTH]);
         }
     }
@@ -251,7 +251,7 @@ class TurtlePathGraph
     void push_adj_node_south(std::vector<PathNode>& row, const PathNode& node)
     {
         auto const coord = to_relative_coord(node);
-        if (coord.z + 1u < view.height() && view.is_air_block(coord.inc_z())) {
+        if (coord.z + 1u < view_.height() && view_.is_air_block(coord.inc_z())) {
             row.emplace_back(node, adj_node_off[Side::SOUTH]);
         }
     }
@@ -259,7 +259,7 @@ class TurtlePathGraph
     void push_adj_node_west(std::vector<PathNode>& row, const PathNode& node)
     {
         auto const coord = to_relative_coord(node);
-        if (coord.x > 1u && view.is_air_block(coord.dec_x())) {
+        if (coord.x > 1u && view_.is_air_block(coord.dec_x())) {
             row.emplace_back(node, adj_node_off[Side::WEST]);
         }
     }
@@ -267,7 +267,7 @@ class TurtlePathGraph
     void push_adj_node_east(std::vector<PathNode>& row, const PathNode& node)
     {
         auto const coord = to_relative_coord(node);
-        if (coord.x + 1u < view.width() && view.is_air_block(coord.inc_x())) {
+        if (coord.x + 1u < view_.width() && view_.is_air_block(coord.inc_x())) {
             row.emplace_back(node, adj_node_off[Side::EAST]);
         }
     }
@@ -275,7 +275,7 @@ class TurtlePathGraph
     void push_adj_node_down(std::vector<PathNode>& row, const PathNode& node)
     {
         auto const coord = to_relative_coord(node);
-        if (coord.y > 1u && view.is_air_block(coord.dec_y())) {
+        if (coord.y > 1u && view_.is_air_block(coord.dec_y())) {
             row.emplace_back(node, adj_node_off[DOWN]);
         }
     }
@@ -283,7 +283,7 @@ class TurtlePathGraph
     void push_adj_node_up(std::vector<PathNode>& row, const PathNode& node)
     {
         auto const coord = to_relative_coord(node);
-        if (coord.y + 1u < RegionView::REGION_HEIGHT && view.is_air_block(coord.inc_y())) {
+        if (coord.y + 1u < RegionView::REGION_HEIGHT && view_.is_air_block(coord.inc_y())) {
             row.emplace_back(node, adj_node_off[UP]);
         }
     }
@@ -307,7 +307,7 @@ class TurtlePathGraph
 public:
 
     TurtlePathGraph(RegionView&& view)
-        : view(std::move(view))
+        : view_(std::move(view))
     {
         adj_node_off[UP] = 4;
         adj_node_off[DOWN] = -adj_node_off[UP];
@@ -319,30 +319,34 @@ public:
         adj_node_off[Side::NORTH] = -adj_node_off[Side::SOUTH];
     }
 
+    RegionView& view() {
+        return view_;
+    }
+
     PathNode to_node(const RelativeBlockCoord& coord, Side side)
     {
-        auto const xz_i = coord.z * view.width() + coord.x;
+        auto const xz_i = coord.z * view_.width() + coord.x;
         auto const xzy_i = xz_i * RegionView::CHUNK_HEIGHT + coord.y;
         return {xzy_i * 4u + static_cast<unsigned int>(side)};
     }
 
     PathNode to_node(const RealBlockCoord& coord, Side side)
     {
-        return to_node(view.to_relative(coord), side);
+        return to_node(view_.to_relative(coord), side);
     }
 
     RelativeBlockCoord to_relative_coord(const PathNode& node) {
         auto const xzy_i = node.n / 4u;
         auto const xz_i = xzy_i / RegionView::CHUNK_HEIGHT;
         return {
-            .x = xz_i % view.width(), 
-            .z = xz_i / view.width(), 
+            .x = xz_i % view_.width(), 
+            .z = xz_i / view_.width(), 
             .y = xzy_i % RegionView::CHUNK_HEIGHT
         };
     }
 
     RealBlockCoord to_real_coord(const PathNode& node) {
-        return view.to_real(to_relative_coord(node));
+        return view_.to_real(to_relative_coord(node));
     }
 
     const std::vector<PathNode>& adjacent_nodes(const PathNode& node) 
