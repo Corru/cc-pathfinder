@@ -1,7 +1,7 @@
 #include <iostream>
 #include "graph.hpp"
 
-auto main() -> int {
+auto main() -> int try {
     TurtlePathGraph graph(RegionView(
         "C:\\Users\\wmath\\Twitch\\Minecraft\\Instances\\FTB Revelation\\saves\\Test\\region",
         -5, -5, 
@@ -15,4 +15,7 @@ auto main() -> int {
     std::cout << view.is_air_block(b1) << std::endl;
     std::cout << view.is_air_block(b2) << std::endl;
     std::cout << view.is_air_block(b3) << std::endl;
+}
+catch (std::exception const& e) {
+    std::cerr << "FATAL: " << e.what() << std::endl;
 }
