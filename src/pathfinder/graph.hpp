@@ -2,13 +2,98 @@
 
 #include <vector>
 #include <string>
-#include <map>
+#include <unordered_map>
 #include <sstream>
 #include <filesystem>
 #include <region_file_reader.h>
 #include <optional>
 
 namespace fs = std::filesystem;
+
+enum Side {
+    NORTH, EAST, WEST, SOUTH
+};
+constexpr unsigned int DOWN = 4;
+constexpr unsigned int UP = 5;
+
+struct RealBlockCoord {
+    int x, z;
+    unsigned int y;
+
+    RealBlockCoord dec_x() const {
+        return {x - 1, z, y};
+    }
+
+    RealBlockCoord dec_z() const {
+        return {x, z - 1, y};
+    }
+
+    RealBlockCoord dec_y() const {
+        return {x, z, y - 1};
+    }
+
+    RealBlockCoord inc_x() const {
+        return {x + 1, z, y};
+    }
+
+    RealBlockCoord inc_z() const {
+        return {x, z + 1, y};
+    }
+
+    RealBlockCoord inc_y() const {
+        return {x, z, y + 1};
+    }
+};
+
+struct RelativeBlockCoord {
+    unsigned int x, z, y;
+
+    RelativeBlockCoord dec_x() const {
+        return {x - 1u, z, y};
+    }
+
+    RelativeBlockCoord dec_z() const {
+        return {x, z - 1u, y};
+    }
+
+    RelativeBlockCoord dec_y() const {
+        return {x, z, y - 1u};
+    }
+
+    RelativeBlockCoord inc_x() const {
+        return {x + 1u, z, y};
+    }
+
+    RelativeBlockCoord inc_z() const {
+        return {x, z + 1u, y};
+    }
+
+    RelativeBlockCoord inc_y() const {
+        return {x, z, y + 1u};
+    }
+};
+
+struct PathNode {
+    unsigned int n;
+
+    PathNode(unsigned int n) : n(n) {}
+
+    PathNode(const PathNode& from, int off) 
+        : n(static_cast<unsigned int>(static_cast<int>(from.n) + off)) 
+        {}
+
+    bool operator==(const PathNode &p) const
+    {
+        return n == p.n;
+    }
+};
+struct PathNodeHash
+{
+    std::size_t operator() (const PathNode &node) const
+    {
+        return std::hash<unsigned int>()(node.n);
+    }
+};
 
 class RegionView 
 {
@@ -29,26 +114,20 @@ class RegionView
         return (fs::path(base_path) / fs::path(region_file.str())).string();
     }
 
-    unsigned int real_x, real_z;
+    int real_x, real_z;
     unsigned int real_width, real_height;
 
-    unsigned int off_x, off_z;
+    int off_x, off_z;
     unsigned int width_, height_;
 
     std::vector<region_file_reader> regions;
 
-    region_file_reader& get_region(int x, int z)
-    {
-        int i = (z - off_z) * width_ + (x - off_x);
-        return regions[i];
-    }
-
 public:
 
-    static constexpr unsigned int CHUNK_HEIGHT = 256;
+    static constexpr unsigned int CHUNK_HEIGHT = 256u;
     static constexpr unsigned int CHUNK_WIDTH = 1u << 4;
 
-    static constexpr unsigned int REGION_HEIGHT = 256;
+    static constexpr unsigned int REGION_HEIGHT = 256u;
     static constexpr unsigned int REGION_WIDTH = 1u << 9;
 
     static constexpr unsigned int IN_REGION_MASK = REGION_WIDTH - 1u;
@@ -73,14 +152,14 @@ public:
             throw std::invalid_argument("width and height should be greater 0"); // TODO:
         }
 
-        unsigned int upper_x = real_x + real_width;
-        unsigned int upper_z = real_z + real_height;
+        int upper_x = real_x + static_cast<int>(real_width);
+        int upper_z = real_z + static_cast<int>(real_height);
 
-        this->off_x = to_region_coord(real_x);
-        this->off_z = to_region_coord(real_z);
+        this->off_x = real_x >> 9;
+        this->off_z = real_z >> 9;
 
-        this->width_ = to_region_coord(upper_x) - off_x;
-        this->height_ = to_region_coord(upper_z) - off_z;
+        this->width_ = static_cast<unsigned int>((upper_x >> 9) - off_x);
+        this->height_ = static_cast<unsigned int>((upper_z >> 9) - off_z);
 
         if ((IN_REGION_MASK & upper_x) != 0) 
         {
@@ -94,9 +173,9 @@ public:
 
         regions.reserve(width_ * height_);
 
-        for (unsigned int z = 0; z < height_; z++) 
+        for (unsigned int z = 0u; z < height_; z++) 
         {
-            for (unsigned int x = 0; x < width_; x++) 
+            for (unsigned int x = 0u; x < width_; x++) 
             {
                 auto& region = regions.emplace_back(region_path(path, x, z));
                 region.read();
@@ -104,161 +183,124 @@ public:
         }
     }
 
-    bool is_air_block(int x, int z, int y)
-    {
-        auto& region = get_region(to_region_coord(x), to_region_coord(z));
-        x &= IN_REGION_MASK;
-        z &= IN_REGION_MASK;
-        int block = region.get_block_at(to_chunk_coord(x), to_chunk_coord(z),
-                        x & IN_CHUNK_MASK, y, z & IN_CHUNK_MASK);
-        return block == 0;
-    }
-
-    unsigned int width() {
+    const unsigned int& width() {
         return this->width_;
     }
 
-    unsigned int height() {
+    const unsigned int& height() {
         return this->height_;
     }
 
-    inline unsigned int to_absolute_x(unsigned int x) {
-        return x - off_x * REGION_WIDTH;
+    inline RelativeBlockCoord to_relative(const RealBlockCoord& coord) {
+        return {
+            .x = static_cast<unsigned int>(coord.x - off_x * static_cast<int>(REGION_WIDTH)), 
+            .z = static_cast<unsigned int>(coord.z - off_z * static_cast<int>(REGION_WIDTH)),
+            .y = coord.y
+        };
     }
 
-    inline unsigned int to_absolute_z(unsigned int z) {
-        return z - off_z * REGION_WIDTH;
+    inline RealBlockCoord to_real(const RelativeBlockCoord& coord) {
+        return {
+            .x = static_cast<int>(coord.x + off_x * static_cast<int>(REGION_WIDTH)), 
+            .z = static_cast<int>(coord.z + off_z * static_cast<int>(REGION_WIDTH)),
+            .y = coord.y
+        };
     }
 
-    inline unsigned int to_real_x(unsigned int x) {
-        return x + off_x * REGION_WIDTH;
+    bool is_air_block(const RelativeBlockCoord& coord)
+    {
+        // Resolve region
+        auto const r_x = to_region_coord(coord.x);
+        auto const r_z = to_region_coord(coord.z);
+        auto& region = regions[r_z * width_ + (r_x)];
+        // Resolve local block coords
+        auto const x = coord.x & IN_REGION_MASK;
+        auto const z = coord.z & IN_REGION_MASK;
+
+        auto const c_x = to_chunk_coord(x);
+        auto const c_z = to_chunk_coord(z);
+
+        auto const b_x = coord.x & IN_CHUNK_MASK;
+        auto const b_y = coord.y;
+        auto const b_z = coord.z & IN_CHUNK_MASK;
+
+        return region.get_block_at(c_x, c_z, b_x, b_y, b_z) == 0;
     }
 
-    inline unsigned int to_real_z(unsigned int z) {
-        return z + off_z * REGION_WIDTH;
+    bool is_air_block(const RealBlockCoord& coord)
+    {
+        return is_air_block(to_relative(coord));
     }
-
-};
-
-enum Side {
-    NORTH, EAST, WEST, SOUTH, DOWN, UP
 };
 
 class TurtlePathGraph 
 {
     RegionView view;
-    std::map<unsigned int, std::vector<unsigned int>> adjacency_matrix;
+    std::unordered_map<PathNode, std::vector<PathNode>, PathNodeHash> adjacency_matrix;
 
     int adj_node_off[6];
 
-    std::optional<unsigned int> adj_node_north(unsigned int node)
+    void push_adj_node_north(std::vector<PathNode>& row, const PathNode& node)
     {
-        unsigned int xzy_i = node / 6;
-        unsigned int xz_i = xzy_i / RegionView::CHUNK_HEIGHT;
-        unsigned int y = xzy_i % RegionView::CHUNK_HEIGHT;
-        unsigned int x = xz_i % view.width();
-        unsigned int z = xz_i / view.width();
-        x = view.to_real_x(x);
-        z = view.to_real_z(z);
-        return (z > 1 && view.is_air_block(x, y, z - 1)) ? 
-            std::optional<unsigned int>{node + adj_node_off[Side::NORTH]} :
-            std::nullopt;
-    }
-
-    std::optional<unsigned int> adj_node_south(unsigned int node)
-    {
-        unsigned int xzy_i = node / 6;
-        unsigned int xz_i = xzy_i / RegionView::CHUNK_HEIGHT;
-        unsigned int y = xzy_i % RegionView::CHUNK_HEIGHT;
-        unsigned int x = xz_i % view.width();
-        unsigned int z = xz_i / view.width();
-        x = view.to_real_x(x);
-        z = view.to_real_z(z);
-        return (z + 1 < view.height() && view.is_air_block(x, y, z + 1)) ? 
-            std::optional<unsigned int>{node + adj_node_off[Side::SOUTH]} :
-            std::nullopt;
-    }
-
-    std::optional<unsigned int> adj_node_west(unsigned int node)
-    {
-        unsigned int xzy_i = node / 6;
-        unsigned int xz_i = xzy_i / RegionView::CHUNK_HEIGHT;
-        unsigned int y = xzy_i % RegionView::CHUNK_HEIGHT;
-        unsigned int x = xz_i % view.width();
-        unsigned int z = xz_i / view.width();
-        x = view.to_real_x(x);
-        z = view.to_real_z(z);
-        return (x > 1 && view.is_air_block(x - 1, y, z)) ? 
-            std::optional<unsigned int>{node + adj_node_off[Side::WEST]} :
-            std::nullopt;
-    }
-
-    std::optional<unsigned int> adj_node_east(unsigned int node)
-    {
-        unsigned int xzy_i = node / 6;
-        unsigned int xz_i = xzy_i / RegionView::CHUNK_HEIGHT;
-        unsigned int y = xzy_i % RegionView::CHUNK_HEIGHT;
-        unsigned int x = xz_i % view.width();
-        unsigned int z = xz_i / view.width();
-        x = view.to_real_x(x);
-        z = view.to_real_z(z);
-        return (x + 1 < view.width() && view.is_air_block(x + 1, y, z)) ? 
-            std::optional<unsigned int>{node + adj_node_off[Side::EAST]} :
-            std::nullopt;
-    }
-
-    std::optional<unsigned int> adj_node_down(unsigned int node)
-    {
-        unsigned int xzy_i = node / 6;
-        unsigned int xz_i = xzy_i / RegionView::CHUNK_HEIGHT;
-        unsigned int y = xzy_i % RegionView::CHUNK_HEIGHT;
-        unsigned int x = xz_i % view.width();
-        unsigned int z = xz_i / view.width();
-        x = view.to_real_x(x);
-        z = view.to_real_z(z);
-        return (y > 1 && view.is_air_block(x, y - 1, z)) ? 
-            std::optional<unsigned int>{node - adj_node_off[Side::DOWN]} :
-            std::nullopt;
-    }
-
-    std::optional<unsigned int> adj_node_up(unsigned int node)
-    {
-        unsigned int xzy_i = node / 6;
-        unsigned int xz_i = xzy_i / RegionView::CHUNK_HEIGHT;
-        unsigned int y = xzy_i % RegionView::CHUNK_HEIGHT;
-        unsigned int x = xz_i % view.width();
-        unsigned int z = xz_i / view.width();
-        x = view.to_real_x(x);
-        z = view.to_real_z(z);
-        return (y < 255 && view.is_air_block(x, y + 1, z)) ? 
-            std::optional<unsigned int>{node + adj_node_off[Side::UP]} :
-            std::nullopt;
-    }
-
-    std::vector<unsigned int> find_adjacent_nodes(unsigned int node) 
-    {
-        std::vector<unsigned int> res;
-        // add sides
-        unsigned int side = node % 6;
-        unsigned int base_side_node = node - side;
-        for (int i = 0; i < 6; i++) {
-            if (base_side_node + i != node) {
-                res.push_back(base_side_node + i);
-            }
+        auto const coord = to_relative_coord(node);
+        if (coord.z > 1u && view.is_air_block(coord.dec_z())) {
+            row.emplace_back(node, adj_node_off[Side::NORTH]);
         }
-        std::optional<unsigned int> adj_node;
+    }
+
+    void push_adj_node_south(std::vector<PathNode>& row, const PathNode& node)
+    {
+        auto const coord = to_relative_coord(node);
+        if (coord.z + 1u < view.height() && view.is_air_block(coord.inc_z())) {
+            row.emplace_back(node, adj_node_off[Side::SOUTH]);
+        }
+    }
+
+    void push_adj_node_west(std::vector<PathNode>& row, const PathNode& node)
+    {
+        auto const coord = to_relative_coord(node);
+        if (coord.x > 1u && view.is_air_block(coord.dec_x())) {
+            row.emplace_back(node, adj_node_off[Side::WEST]);
+        }
+    }
+
+    void push_adj_node_east(std::vector<PathNode>& row, const PathNode& node)
+    {
+        auto const coord = to_relative_coord(node);
+        if (coord.x + 1u < view.width() && view.is_air_block(coord.inc_x())) {
+            row.emplace_back(node, adj_node_off[Side::EAST]);
+        }
+    }
+
+    void push_adj_node_down(std::vector<PathNode>& row, const PathNode& node)
+    {
+        auto const coord = to_relative_coord(node);
+        if (coord.y > 1u && view.is_air_block(coord.dec_y())) {
+            row.emplace_back(node, adj_node_off[DOWN]);
+        }
+    }
+
+    void push_adj_node_up(std::vector<PathNode>& row, const PathNode& node)
+    {
+        auto const coord = to_relative_coord(node);
+        if (coord.y + 1u < RegionView::REGION_HEIGHT && view.is_air_block(coord.inc_y())) {
+            row.emplace_back(node, adj_node_off[UP]);
+        }
+    }
+
+    std::vector<PathNode> find_adjacent_nodes(const PathNode& node) 
+    {
+        std::vector<PathNode> res;
+        auto const side = static_cast<Side>(node.n % 4);
         switch (side)
         {
-        case NORTH: adj_node = adj_node_north(node); break;
-        case SOUTH: adj_node = adj_node_south(node); break;
-        case WEST: adj_node = adj_node_west(node); break;
-        case EAST: adj_node = adj_node_east(node); break;
-        case UP: adj_node = adj_node_up(node); break;
-        case DOWN: adj_node = adj_node_down(node); break;
+        case Side::NORTH: push_adj_node_north(res, node); break;
+        case Side::SOUTH: push_adj_node_south(res, node); break;
+        case Side::WEST: push_adj_node_west(res, node); break;
+        case Side::EAST: push_adj_node_east(res, node); break;
         }
-        if (adj_node) {
-            res.push_back(adj_node.value());
-        }
+        push_adj_node_up(res, node);
+        push_adj_node_down(res, node);
         return res;
     }
 
@@ -267,24 +309,43 @@ public:
     TurtlePathGraph(RegionView&& view)
         : view(std::move(view))
     {
-        adj_node_off[NORTH] = -view.width() * RegionView::CHUNK_HEIGHT * 6;
-        adj_node_off[SOUTH] = view.width() * RegionView::CHUNK_HEIGHT * 6;
-        adj_node_off[WEST] = -RegionView::CHUNK_HEIGHT * 6;
-        adj_node_off[EAST] = RegionView::CHUNK_HEIGHT * 6;
-        adj_node_off[DOWN] = -1 * 6;
-        adj_node_off[UP] = 1 * 6;
+        adj_node_off[UP] = 4;
+        adj_node_off[DOWN] = -adj_node_off[UP];
+
+        adj_node_off[Side::EAST] = static_cast<int>(RegionView::CHUNK_HEIGHT) * adj_node_off[UP];
+        adj_node_off[Side::WEST] = -adj_node_off[Side::EAST];
+
+        adj_node_off[Side::SOUTH] = static_cast<int>(view.width()) * adj_node_off[Side::EAST];
+        adj_node_off[Side::NORTH] = -adj_node_off[Side::SOUTH];
     }
 
-    unsigned int to_node(int x, int y, int z, Side side) 
+    PathNode to_node(const RelativeBlockCoord& coord, Side side)
     {
-        x = view.to_absolute_x(x);
-        z = view.to_absolute_z(z);
-        unsigned int xz_i = z * view.width() + x;
-        unsigned int xzy_i = xz_i * RegionView::CHUNK_HEIGHT + y;
-        return xzy_i * 6 + side;
+        auto const xz_i = coord.z * view.width() + coord.x;
+        auto const xzy_i = xz_i * RegionView::CHUNK_HEIGHT + coord.y;
+        return {xzy_i * 4u + static_cast<unsigned int>(side)};
     }
 
-    const std::vector<unsigned int>& adjacent_nodes(unsigned int node) 
+    PathNode to_node(const RealBlockCoord& coord, Side side)
+    {
+        return to_node(view.to_relative(coord), side);
+    }
+
+    RelativeBlockCoord to_relative_coord(const PathNode& node) {
+        auto const xzy_i = node.n / 4u;
+        auto const xz_i = xzy_i / RegionView::CHUNK_HEIGHT;
+        return {
+            .x = xz_i % view.width(), 
+            .z = xz_i / view.width(), 
+            .y = xzy_i % RegionView::CHUNK_HEIGHT
+        };
+    }
+
+    RealBlockCoord to_real_coord(const PathNode& node) {
+        return view.to_real(to_relative_coord(node));
+    }
+
+    const std::vector<PathNode>& adjacent_nodes(const PathNode& node) 
     {
         auto it = adjacency_matrix.find(node);
         if (it != adjacency_matrix.end())
