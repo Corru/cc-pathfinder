@@ -7,7 +7,7 @@
       {
         "name": "WSL",
         "intelliSenseMode": "clang-x64",
-        "includePath": ["${pathfinderIncludePath}", "${libanvilIncludePath}"],
+        "includePath": ["${libanvilIncludePath}"],
         "defines": ["DEBUG"],
         "forcedInclude": [],
         "compilerPath": "/usr/bin/clang",
