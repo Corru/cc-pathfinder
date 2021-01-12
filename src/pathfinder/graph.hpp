@@ -173,11 +173,11 @@ public:
 
         regions.reserve(width_ * height_);
 
-        for (unsigned int z = 0u; z < height_; z++) 
+        for (int z = 0u; z < static_cast<int>(height_); z++) 
         {
-            for (unsigned int x = 0u; x < width_; x++) 
+            for (int x = 0u; x < static_cast<int>(width_); x++) 
             {
-                auto& region = regions.emplace_back(region_path(path, x, z));
+                auto& region = regions.emplace_back(region_path(path, x + off_x, z + off_z));
                 region.read();
             }
         }
