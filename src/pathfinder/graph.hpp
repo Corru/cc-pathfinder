@@ -82,18 +82,18 @@ struct PathNode {
         : n(static_cast<unsigned int>(static_cast<int>(from.n) + off)) 
         {}
 
-    bool operator==(const PathNode &p) const
-    {
-        return n == p.n;
-    }
+    friend bool operator==(const PathNode &, const PathNode&) = default;
 };
-struct PathNodeHash
-{
-    std::size_t operator() (const PathNode &node) const
+
+namespace std {
+    template <> struct hash<PathNode>
     {
-        return std::hash<unsigned int>()(node.n);
-    }
-};
+        std::size_t operator() (const PathNode &node) const
+        {
+            return std::hash<unsigned int>{}(node.n);
+        }
+    };
+}
 
 class RegionView 
 {
@@ -236,7 +236,7 @@ public:
 class TurtlePathGraph 
 {
     RegionView view_;
-    std::unordered_map<PathNode, std::vector<PathNode>, PathNodeHash> adjacency_matrix;
+    std::unordered_map<PathNode, std::vector<PathNode>> adjacency_matrix;
 
     int adj_node_off[6];
 
