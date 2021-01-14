@@ -21,12 +21,9 @@ set(Boost_USE_STATIC_LIBS ON)
 
 
 include(libanvil)
-find_package(Boost REQUIRED COMPONENTS locale)
 
 
 # ------------------------------------------------------- #
 
 
-include_directories(${Boost_INCLUDE_DIRS} ${libanvil_INCLUDE_DIRS})
-add_subdirectory(src/server)
 add_subdirectory(src/pathfinder)
