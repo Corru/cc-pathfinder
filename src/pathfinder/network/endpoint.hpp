@@ -1,6 +1,5 @@
 #pragma once
 
-#include <compare>
 #include <functional>
 #include <string>
 #include <set>
@@ -25,13 +24,18 @@ namespace network
         callback_t  callback;
 
         /// Returns ordering between two endpoints following by path and method
-        friend auto operator<=>(const endpoint& left, const endpoint& right) -> std::strong_ordering
+        friend auto operator<(const endpoint& left, const endpoint& right) -> bool
         {
-            if (auto const res = left.path.compare(right.path); res)
+            auto const res = left.path.compare(right.path);
+            if (res < 0)
             {
-                return res <=> 0; // explicit conversion to std::string_ordering
+                return true;
             }
-            return left.method <=> right.method;
+            if (res == 0)
+            {
+                return left.method < right.method;
+            }
+            return false;
         }
 
         friend auto operator==(const endpoint& left, const endpoint& right) -> bool
