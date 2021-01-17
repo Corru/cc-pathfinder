@@ -5,6 +5,7 @@
 #include <string_view>
 #include <sstream>
 
+#include <boost/type_index.hpp>
 #include <boost/format.hpp>
 #include <skyr/url.hpp>
 
@@ -54,7 +55,7 @@ auto extract_required_from_query(
             string_value >> parsed_value;
             if (string_value.fail())
             {
-                auto const error = boost::format("query parameter '%s' is not %s value") % param_name % typeid(parsed_value).name();
+                auto const error = boost::format("query parameter '%s' is not %s value") % param_name % boost::typeindex::type_id<T>().pretty_name();
                 throw std::invalid_argument{ error.str() };
             }
 
