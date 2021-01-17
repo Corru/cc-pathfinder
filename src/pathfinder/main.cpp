@@ -2,65 +2,77 @@
 #include <set>
 #include <array>
 #include <string>
+#include <string_view>
 #include <sstream>
 
-#include <boost/json.hpp>
+#include <boost/format.hpp>
+#include <skyr/url.hpp>
 
-#include "graph.hpp"
-#include "network.hpp"
+#include "network/endpoint.hpp"
+#include "network/service.hpp"
 
 namespace network {
-    template<typename ...Tail, template<typename ...> typename Container>
-    auto http_server(tcp::acceptor& acceptor, tcp::socket& socket, Container<network::endpoint, Tail...> const& endpoints) -> void {
+    auto register_service(tcp::acceptor& acceptor, tcp::socket& socket, network::endpoints_collection const& endpoints) -> void {
         acceptor.async_accept(
             socket, 
-            [&](beast::error_code ec) {
-                if (!ec) {
-                    std::make_shared<http_connection>(std::move(socket))->start(endpoints);
+            [&](beast::error_code ec) 
+            {
+                if (!ec)
+                {
+                    std::make_shared<service>(std::move(socket))->start(endpoints);
                 }
-                http_server(acceptor, socket, endpoints);
-            });
+                register_service(acceptor, socket, endpoints);
+            }
+        );
     }
 }
 
 template<typename T, std::size_t N>
-static auto operator<<(std::ostream& stream, std::array<T, N> const& array) -> std::ostream& {
-    std::size_t const size = std::size(array);
+auto extract_required_from_query(
+    skyr::url_search_parameters const&     query,
+    std::array<std::string_view, N> const& required_params,
+    std::map<std::string, T>&              result
+) noexcept(false) -> void
+{
+    for (auto const param_name : required_params)
+    {
+        auto const it = std::find_if(
+            std::begin(query),
+            std::end(query),
+            [&](auto const& pair) -> bool 
+            {
+                return pair.first == param_name;
+            }
+        );
+        if (it != std::end(query))
+        {
+            auto const& [key, value] = *it;
+            auto parsed_value = T{};
 
-    stream << "{";
-    if (size > 0) {
-        for (std::size_t i = 0; i < size - 1; ++i) {
-            stream << array[i] << ", ";
+            // Try extract value from string value
+            std::stringstream string_value(value);
+            string_value >> parsed_value;
+            if (string_value.fail())
+            {
+                auto const error = boost::format("query parameter '%s' is not %s value") % param_name % typeid(parsed_value).name();
+                throw std::invalid_argument{ error.str() };
+            }
+
+            result[key] = parsed_value;
         }
-        stream << array[size - 1];
-    }
-    stream << "}";
-
-    return stream;
-}
-
-template<std::size_t N>
-static auto match_name(std::string_view const name, std::array<std::string_view, N> const& list) -> void {
-    using namespace std::string_literals;
-
-    for (auto const& entry : list) {
-        if (name == entry) {
-            return;
+        else
+        {
+            auto const error = boost::format("query parameter '%s' is required") % param_name;
+            throw std::invalid_argument{ error.str() };
         }
     }
-
-    std::ostringstream list_ostream;
-    list_ostream << list;
-
-    throw std::invalid_argument{
-        "parameter name '"s + std::string(name) + "' does not match any of "s + list_ostream.str()
-    };
 }
 
 auto main(int const argc, char const* argv[]) -> int {
     using namespace network;
     using namespace std::string_view_literals;
 
+    /*
     TurtlePathGraph graph(RegionView(
         "/c/Users/wmath/Twitch/Minecraft/Instances/FTB Revelation/saves/Test/region",
         -5, -5,
@@ -78,6 +90,7 @@ auto main(int const argc, char const* argv[]) -> int {
     std::cout << view.is_air_block(b3) << std::endl;
     std::cout << view.is_air_block(b4) << std::endl;
     std::cout << view.is_air_block(b5) << std::endl;
+    */
 
     // Check command line arguments.
     if (argc != 3)
@@ -90,43 +103,34 @@ auto main(int const argc, char const* argv[]) -> int {
         return EXIT_FAILURE;
     }
 
+    endpoints_collection endpoints;
+    endpoints.update({
+        .path     = "/navigate",
+        .method   = network::http::verb::get,
+        .callback = [](network::request const& request, network::response& response) -> void
+        {
+            auto constexpr required_params = std::array
+            {
+                "x_start"sv, "z_start"sv, "y_start"sv,
+                "x_finish"sv, "z_finish"sv, "y_finish"sv,
+            };
+            auto parsed_params = std::map<std::string, int>{};
+
+            //
+            // Extract required params.
+            // If there is no some of them extract_required_from_query() will throw an error.
+            //
+            auto const url = skyr::url{ std::string{request.target()} };
+            extract_required_from_query(url.search_parameters(), required_params, parsed_params);
+
+            //
+            // Nah, we reached unreachable, bruh on you
+            //
+            throw std::runtime_error{ "not implemented" };
+        }
+    });
+
     try {
-        std::set<network::endpoint> endpoints{};
-        endpoints.insert({
-            .path = "/navigate",
-            .method = network::http::verb::get,
-            .callback = [](network::request const& request, network::response& response) {
-                std::array constexpr       required_params = {"x_start"sv, "z_start"sv, "x_finish"sv, "z_finish"sv};
-                std::map<std::string, int> parsed_params;
-
-                // Parse query
-                auto const  url = skyr::url(std::string{ request.target() });
-                auto const& search = url.search_parameters();
-                for (auto const& [key, value] : search) {
-                    // Check name of key; if name is unknown exception will be thrown
-                    match_name(key, required_params);
-
-                    // Check that there is no multiple defenitions of current parameter
-                    if (parsed_params.find(key) != std::end(parsed_params)) {
-                        throw std::invalid_argument{ "multiple definitions of " + key };
-                    }
-
-                    parsed_params[key] = std::stoi(value);
-                }
-                if (std::size(parsed_params) != std::size(required_params)) {
-                    throw std::invalid_argument{"incorrect number of arguments"};
-                }
-
-                // Exctract parameters from parsed query
-                int const x_start  = parsed_params["x_start"];
-                int const z_start  = parsed_params["z_start"];
-                int const x_finish = parsed_params["x_finish"];
-                int const z_finish = parsed_params["z_finish"];
-
-                throw std::runtime_error{"not implemented"};
-            }
-        });
-
         auto const address = net::ip::make_address(argv[1]);
         unsigned short port = static_cast<unsigned short>(std::atoi(argv[2]));
 
@@ -134,11 +138,11 @@ auto main(int const argc, char const* argv[]) -> int {
 
         tcp::acceptor acceptor{ ioc, {address, port} };
         tcp::socket socket{ ioc };
-        http_server(acceptor, socket, endpoints);
+        register_service(acceptor, socket, endpoints);
 
         ioc.run();
     }
     catch (std::exception const& e) {
-        std::cerr << "FATAL: " << e.what() << std::endl;
+        std::cerr << "[FATAL] " << e.what() << std::endl;
     }
 }
